@@ -8,6 +8,16 @@
                  -= Light Libretro Front-end =-
 
 =================================
+Unreleased (dArkOSen Extended fork)
+---------------------------------
+- Configurable hotkeys in retrorun.cfg: retrorun_hotkey_menu (a button that opens
+  and closes the menu on its own), retrorun_hotkey_slot_next / _slot_prev,
+  retrorun_hotkey_fast_forward, retrorun_hotkey_save_state / _load_state. They
+  take the button names of retrorun_mapping_button_* or "none"; without them
+  the historical combinations are kept.
+- The ArkOS-style alternative input mode gets the fast-forward toggle too.
+
+=================================
 Version 3.0.0 (Jul 15, 2026)
 ---------------------------------
 - Added a portable SDL2 backend for macOS and Linux-based handheld devices.

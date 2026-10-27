@@ -405,6 +405,21 @@ open the menu, Y for FPS, B for screenshots, A for pause and Start for exit.
 
 Logical controls can be assigned in `retrorun.cfg`:
 
+The combinations themselves can be changed with `retrorun_hotkey_*`
+settings. `retrorun_hotkey_menu` names a button that opens and closes the menu
+on its own; the others name the button pressed together with the hotkey
+modifier (Select on most devices). Values use the names below, or `none` to
+disable a combination. Without a setting the historical buttons are kept.
+
+```ini
+retrorun_hotkey_menu = F5
+retrorun_hotkey_slot_next = TriggerRight
+retrorun_hotkey_slot_prev = TriggerLeft
+retrorun_hotkey_fast_forward = F3
+retrorun_hotkey_save_state = TopRight
+retrorun_hotkey_load_state = TopLeft
+```
+
 ```ini
 retrorun_mapping_button_up = DPadUp
 retrorun_mapping_button_down = DPadDown

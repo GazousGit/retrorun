@@ -104,6 +104,33 @@ bool ignoreF2=true;
 bool firstExecution = true;
 bool enable_key_log = false;
 
+// Configurable hotkeys (retrorun_hotkey_* in retrorun.cfg).
+// retrorun_hotkey_menu is a button that opens and closes the menu on its own; the
+// others are pressed together with the hotkey modifier (Select on most devices).
+// Values use the same names as retrorun_mapping_button_* (A, B, X, Y, DPadUp,
+// TopLeft, TriggerRight, F1..F12, START, SELECT, THUMBL...) or "none" to disable
+// the combination. Without a setting the historical buttons are kept.
+struct HotkeyButton {
+    bool enabled;
+    rr_input_button_t button;
+};
+static HotkeyButton hkMenu        = {false, RRInputButton_A};
+static HotkeyButton hkSlotNext    = {true,  RRInputButton_DPadUp};
+static HotkeyButton hkSlotPrev    = {true,  RRInputButton_DPadDown};
+static HotkeyButton hkFastForward = {true,  RRInputButton_F3};
+static HotkeyButton hkSaveState   = {true,  RRInputButton_TopRight};
+static HotkeyButton hkLoadState   = {true,  RRInputButton_TopLeft};
+
+static bool hotkeyDown(const HotkeyButton& hk)
+{
+    return hk.enabled && rr_input_state_button_get(gamepadState, hk.button) == RRButtonState_Pressed;
+}
+
+static bool hotkeyWasUp(const HotkeyButton& hk)
+{
+    return hk.enabled && rr_input_state_button_get(prevGamepadState, hk.button) == RRButtonState_Released;
+}
+
 
 bool input_slot_memory_plus_requested = false;
 double lastSlotPlusTime = -1;
@@ -240,6 +267,46 @@ void applyButtonRemapping()
 }
 
 
+static void applyHotkeyConfig()
+{
+    // defaults: the historical combinations, expressed with the device layout
+    hkMenu        = {false, RRInputButton_A};
+    hkSlotNext    = {true,  upButton};
+    hkSlotPrev    = {true,  downButton};
+    hkFastForward = {true,  r2Button};
+    hkSaveState   = {true,  r1Button};
+    hkLoadState   = {true,  l1Button};
+
+    struct Entry { const char* key; HotkeyButton* target; };
+    const Entry entries[] = {
+        {"retrorun_hotkey_menu",         &hkMenu},
+        {"retrorun_hotkey_slot_next",    &hkSlotNext},
+        {"retrorun_hotkey_slot_prev",    &hkSlotPrev},
+        {"retrorun_hotkey_fast_forward", &hkFastForward},
+        {"retrorun_hotkey_save_state",   &hkSaveState},
+        {"retrorun_hotkey_load_state",   &hkLoadState},
+    };
+    for (const Entry& e : entries) {
+        const auto it = conf_map.find(e.key);
+        if (it == conf_map.end()) continue;
+        const std::string& value = it->second;
+        if (value == "none") {
+            e.target->enabled = false;
+            logger.log(Logger::DEB, "%s: disabled", e.key);
+            continue;
+        }
+        const rr_input_button_t button = stringToGo2Button(value);
+        if (button == RRInputButton_A && value != "A") {
+            logger.log(Logger::WARN, "%s: unknown button '%s', keeping the default", e.key, value.c_str());
+            continue;
+        }
+        e.target->enabled = true;
+        e.target->button = button;
+        logger.log(Logger::DEB, "%s: '%s'", e.key, value.c_str());
+    }
+}
+
+
 void initButtons(){
     logger.log(Logger::DEB, "Default buttons initialization...");
     upButton =RRInputButton_DPadUp;
@@ -308,7 +375,8 @@ void initButtons(){
 #endif
  
      applyButtonRemapping();
- 
+     applyHotkeyConfig();
+
 }
 
 
@@ -546,13 +614,24 @@ bool isAPressed = rr_input_state_button_get(gamepadState, aButton) == RRButtonSt
 bool wasBReleased = rr_input_state_button_get(prevGamepadState, bButton) == RRButtonState_Released;
 //bool isF1Pressed = rr_input_state_button_get(gamepadState, f1Button) == RRButtonState_Pressed;
 bool isF2Pressed = ignoreF2 ? false: rr_input_state_button_get(gamepadState, f2Button) == RRButtonState_Pressed;
-bool isR2Pressed = rr_input_state_button_get(gamepadState, r2Button) == RRButtonState_Pressed;
-bool wasR2Released = rr_input_state_button_get(prevGamepadState, r2Button) == RRButtonState_Released;
+bool isFfPressed = hotkeyDown(hkFastForward);
+bool wasFfReleased = hotkeyWasUp(hkFastForward);
 
 // Get current time once
 struct timeval valTime;
 gettimeofday(&valTime, NULL);
 double currentTime = valTime.tv_sec + (valTime.tv_usec / 1000000.0);
+// A dedicated menu button (retrorun_hotkey_menu) toggles the menu on its own
+if (!showLoading && hotkeyDown(hkMenu) && hotkeyWasUp(hkMenu)) {
+    double elapsed = currentTime - lastInforequestTime;
+    if (elapsed >= 0.5) {
+        input_info_requested = !input_info_requested;
+        pause_requested = input_info_requested;
+        input_credits_requested = false;
+        lastInforequestTime = currentTime;
+        logger.log(Logger::DEB, "Input: menu toggled by the menu hotkey");
+    }
+}
 // Handle input_info_requested_alternative condition
 if (input_info_requested_alternative) { // this are the alternative combinations used by ArkOs
     // Handle emntering in Menu request
@@ -610,6 +689,12 @@ if (input_info_requested_alternative) { // this are the alternative combinations
                 pauseRequestTime = currentTime;
             }
         }
+        // Handle fast-forward request (same button as in the AmberELEC mode)
+        if (!showLoading && (isF2Pressed || isSelectPressed) && isFfPressed && wasFfReleased) {
+            input_ffwd_requested = !input_ffwd_requested;
+            logger.log(Logger::DEB, "Input: Fast-forward %s", input_ffwd_requested ? "on" : "off");
+        }
+
 }
 
 } else { // this is the oermal behaviour used in AmberElec
@@ -665,7 +750,7 @@ if (input_info_requested_alternative) { // this are the alternative combinations
             }
         }
         // Handle fast-forward request
-        if (!showLoading && isSelectPressed && isR2Pressed && wasR2Released) {
+        if (!showLoading && isSelectPressed && isFfPressed && wasFfReleased) {
             input_ffwd_requested = !input_ffwd_requested;
             logger.log(Logger::DEB, "Input: Fast-forward %s", input_ffwd_requested ? "on" : "off");
         }
@@ -679,7 +764,7 @@ if (input_info_requested_alternative) { // this are the alternative combinations
 
 // new
 if (!showLoading && (rr_input_state_button_get(gamepadState, selectButton) == RRButtonState_Pressed) &&
-(rr_input_state_button_get(gamepadState, r1Button) == RRButtonState_Pressed))
+hotkeyDown(hkSaveState))
 {
 gettimeofday(&valTime, NULL);
 double currentTime = valTime.tv_sec + (valTime.tv_usec / 1000000.0);
@@ -694,7 +779,7 @@ if (elapsed >= 0.5)
 }
 
 if (!showLoading && (rr_input_state_button_get(gamepadState, selectButton) == RRButtonState_Pressed) &&
-(rr_input_state_button_get(gamepadState, upButton) == RRButtonState_Pressed))
+hotkeyDown(hkSlotNext))
 {
 gettimeofday(&valTime, NULL);
 double currentTime = valTime.tv_sec + (valTime.tv_usec / 1000000.0);
@@ -712,7 +797,7 @@ if (elapsed >= 0.5)
 }
 
 if (!showLoading && (rr_input_state_button_get(gamepadState, selectButton) == RRButtonState_Pressed) &&
-(rr_input_state_button_get(gamepadState, downButton) == RRButtonState_Pressed))
+hotkeyDown(hkSlotPrev))
 {
 gettimeofday(&valTime, NULL);
 double currentTime = valTime.tv_sec + (valTime.tv_usec / 1000000.0);
@@ -728,7 +813,7 @@ if (elapsed >= 0.5)
 }
 
 if (!showLoading && (rr_input_state_button_get(gamepadState, selectButton) == RRButtonState_Pressed) &&
-(rr_input_state_button_get(gamepadState, l1Button) == RRButtonState_Pressed))
+hotkeyDown(hkLoadState))
 {
 gettimeofday(&valTime, NULL);
 double currentTime = valTime.tv_sec + (valTime.tv_usec / 1000000.0);
